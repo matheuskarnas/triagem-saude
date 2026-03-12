@@ -20,7 +20,8 @@ MODELS_DIR = Path(os.getenv("MODELS_DIR", "models"))
 # Padrão: 0.35 — ajustável via variável de ambiente
 EMERGENCIA_THRESHOLD = float(os.getenv("EMERGENCIA_THRESHOLD", "0.35"))
 
-CLASSES = ["EMERGENCIA", "URGENTE", "NAO_URGENTE"]
+CLASSES = ["NAO_URGENTE", "URGENTE", "EMERGENCIA"]
+
 
 ALERTAS = {
     "EMERGENCIA":  "🔴 Procure atendimento de emergência imediatamente!",
