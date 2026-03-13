@@ -33,7 +33,7 @@ class PredictResponse(BaseModel):
     label_num:              int
     confianca:              float
     alerta:                 str
-    threshold_emergencia:   float
+    threshold_urgente:   float
 
 
 class HealthResponse(BaseModel):
