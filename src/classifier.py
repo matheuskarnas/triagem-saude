@@ -1,58 +1,68 @@
 """
 classifier.py
 -------------
-Carrega o modelo treinado e realiza predições com threshold ajustado
-para priorizar recall da classe EMERGENCIA.
+Carrega o modelo BERTimbau fine-tuned e realiza predições com threshold
+ajustado para priorizar recall da classe EMERGENCIA.
 """
 
 import os
-import joblib
+import torch
 import numpy as np
 from pathlib import Path
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from src.preprocessing import limpar_texto
 
 # ─── Configuração ─────────────────────────────────────────────────────────────
 
 MODELS_DIR = Path(os.getenv("MODELS_DIR", "models"))
+BERT_MODEL_DIR = MODELS_DIR / "bertimbau_triagem"
 
 # Threshold de decisão para EMERGENCIA
 # Valor menor = mais sensível (menos falsos negativos)
 # Padrão: 0.35 — ajustável via variável de ambiente
-EMERGENCIA_THRESHOLD = float(os.getenv("EMERGENCIA_THRESHOLD", "0.35"))
+URGENTE_THRESHOLD = float(os.getenv("URGENTE_THRESHOLD", "0.35"))
 
-CLASSES = ["NAO_URGENTE", "URGENTE", "EMERGENCIA"]
-
+# Mapeamento índice → label (deve coincidir com o treinamento)
+ID2LABEL = {0: "LEVE", 1: "MODERADO", 2: "URGENTE"}
+LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 
 ALERTAS = {
-    "EMERGENCIA":  "🔴 Procure atendimento de emergência imediatamente!",
-    "URGENTE":     "🟡 Procure atendimento médico em até 24 horas.",
-    "NAO_URGENTE": "🟢 Agende uma consulta médica.",
+    "URGENTE":  "🔴 Procure atendimento de emergência imediatamente!",
+    "MODERADO": "🟡 Procure atendimento médico em até 24 horas.",
+    "LEVE":     "🟢 Agende uma consulta médica.",
 }
+
+# Usar GPU se disponível
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # ─── Classe do Classificador ──────────────────────────────────────────────────
 
 class TriagemClassifier:
-    """Classificador de triagem médica com threshold ajustável para EMERGENCIA."""
+    """Classificador de triagem médica com BERTimbau e threshold ajustável."""
 
     def __init__(self):
-        self.model      = None
-        self.vectorizer = None
-        self._loaded    = False
+        self.model     = None
+        self.tokenizer = None
+        self._loaded   = False
 
     def load(self):
-        """Carrega modelo e vectorizer do disco."""
-        model_path      = MODELS_DIR / "classifier.pkl"
-        vectorizer_path = MODELS_DIR / "vectorizer.pkl"
+        """Carrega modelo BERTimbau e tokenizer do disco."""
+        if not BERT_MODEL_DIR.exists():
+            raise FileNotFoundError(
+                f"Modelo BERTimbau não encontrado em: {BERT_MODEL_DIR}\n"
+                "Execute o fine-tuning antes de iniciar a API."
+            )
 
-        if not model_path.exists():
-            raise FileNotFoundError(f"Modelo não encontrado em: {model_path}")
-        if not vectorizer_path.exists():
-            raise FileNotFoundError(f"Vectorizer não encontrado em: {vectorizer_path}")
-
-        self.model      = joblib.load(model_path)
-        self.vectorizer = joblib.load(vectorizer_path)
-        self._loaded    = True
+        print(f"🤖 Carregando BERTimbau de {BERT_MODEL_DIR}...")
+        self.tokenizer = AutoTokenizer.from_pretrained(str(BERT_MODEL_DIR))
+        self.model     = AutoModelForSequenceClassification.from_pretrained(
+            str(BERT_MODEL_DIR)
+        )
+        self.model.to(DEVICE)
+        self.model.eval()
+        self._loaded = True
+        print(f"✅ Modelo carregado no dispositivo: {DEVICE}")
 
     def predict(self, texto: str) -> dict:
         """
@@ -68,28 +78,37 @@ class TriagemClassifier:
             raise RuntimeError("Modelo não carregado. Chame load() primeiro.")
 
         texto_limpo = limpar_texto(texto)
-        vetor = self.vectorizer.transform([texto_limpo])
 
-        # Probabilidades por classe
-        proba = self.model.predict_proba(vetor)[0]
-        classes_model = self.model.classes_
+        # Tokenizar
+        inputs = self.tokenizer(
+            texto_limpo,
+            return_tensors="pt",
+            truncation=True,
+            max_length=128,
+            padding=True,
+        )
+        inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+
+        # Inferência sem gradiente
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+            proba = torch.softmax(outputs.logits, dim=-1)[0].cpu().numpy()
 
         # Mapear probabilidades para dict
-        proba_dict = {c: float(p) for c, p in zip(classes_model, proba)}
+        proba_dict = {ID2LABEL[i]: float(p) for i, p in enumerate(proba)}
 
         # Aplicar threshold especial para EMERGENCIA
-        # Se a probabilidade de EMERGENCIA supera o threshold, classifica como tal
-        if proba_dict.get("EMERGENCIA", 0) >= EMERGENCIA_THRESHOLD:
-            label = "EMERGENCIA"
+        if proba_dict.get("URGENTE", 0) >= URGENTE_THRESHOLD:
+            label = "URGENTE"
         else:
-            label = classes_model[np.argmax(proba)]
+            label = ID2LABEL[int(np.argmax(proba))]
 
         return {
-            "label":      label,
-            "label_num":  CLASSES.index(label),
-            "confianca":  round(proba_dict[label], 4),
-            "alerta":     ALERTAS[label],
-            "threshold_emergencia": EMERGENCIA_THRESHOLD,
+            "label":                label,
+            "label_num":            LABEL2ID[label],
+            "confianca":            round(proba_dict[label], 4),
+            "alerta":               ALERTAS[label],
+            "threshold_urgente": URGENTE_THRESHOLD,
         }
 
 
