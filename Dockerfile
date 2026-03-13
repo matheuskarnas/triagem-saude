@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Dependências do sistema
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
+    build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar dependências Python primeiro (cache eficiente)
