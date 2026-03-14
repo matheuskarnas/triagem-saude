@@ -48,3 +48,4 @@ models/bertimbau_triagem/*.safetensors
 models/bertimbau_triagem/*.json
 models/*.pkl
 models/*.png
+.env

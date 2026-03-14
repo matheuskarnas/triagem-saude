@@ -45,8 +45,17 @@ cd triagem-saude
 
 # Obtenha o modelo primeiro (veja seção abaixo)
 
+# Cria o arquivo de ambiente (necessário para o docker-compose)
+touch .env
+
+# Sobe a API
 docker-compose up --build
 ```
+
+> ⚠️ Se aparecer erro `ContainerConfig` ao rodar `--build`, execute:
+> ```bash
+> docker-compose down && docker-compose up
+> ```
 
 ### Opção 2 — Local
 
@@ -136,7 +145,7 @@ Threshold 0.35 foi escolhido para maximizar o Recall da classe URGENTE (92.9%), 
 ### `GET /health`
 
 ```json
-{ "status": "ok", "model": "bertimbau_triagem" }
+{ "status": "ok", "model": "loaded" }
 ```
 
 ---
